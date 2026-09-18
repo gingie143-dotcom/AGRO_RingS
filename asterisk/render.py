@@ -26,7 +26,10 @@ def render(root):
     sip_password=value('SIP_PASSWORD')
     external=value('SIP_EXTERNAL_ADDRESS')
     local=value('SIP_LOCAL_NET','172.16.0.0/12')
-    pjsip='[transport-udp]\ntype=transport\nprotocol=udp\nbind=0.0.0.0:5060\n'
+    transport=value('SIP_TRANSPORT','udp').lower()
+    if transport not in ('udp','tcp'):
+        raise ValueError('SIP_TRANSPORT must be udp or tcp')
+    pjsip=f'[transport-{transport}]\ntype=transport\nprotocol={transport}\nbind=0.0.0.0:5060\n'
     if external:
         pjsip+=f'external_signaling_address={external}\nexternal_media_address={external}\nlocal_net={local}\n'
     if host:
@@ -40,10 +43,10 @@ username={username}
 password={sip_password}
 [trunk-aor]
 type=aor
-contact=sip:{host}
+contact=sip:{host}:5060;transport={transport}
 [trunk]
 type=endpoint
-transport=transport-udp
+transport=transport-{transport}
 context=from-trunk
 disallow=all
 allow=ulaw
@@ -57,10 +60,10 @@ force_rport=yes
 rewrite_contact=yes
 [trunk-registration]
 type=registration
-transport=transport-udp
+transport=transport-{transport}
 outbound_auth=trunk-auth
-server_uri=sip:{host}
-client_uri=sip:{username}@{host}
+server_uri=sip:{host}:5060;transport={transport}
+client_uri=sip:{username}@{host};transport={transport}
 retry_interval=60
 expiration=300
 '''

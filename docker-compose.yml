@@ -124,13 +124,14 @@ services:
     build: {context: ./asterisk}
     environment:
       ARI_PASSWORD: ${ARI_PASSWORD:?Run setup first}
+      SIP_TRANSPORT: ${SIP_TRANSPORT:-udp}
       SIP_HOST: ${SIP_HOST:-}
       SIP_USERNAME: ${SIP_USERNAME:-}
       SIP_PASSWORD: ${SIP_PASSWORD:-}
       SIP_EXTERNAL_ADDRESS: ${SIP_EXTERNAL_ADDRESS:-}
       SIP_LOCAL_NET: ${SIP_LOCAL_NET:-172.16.0.0/12}
     ports:
-      - '${SIP_BIND_ADDRESS:-127.0.0.1}:5060:5060/udp'
+      - '${SIP_BIND_ADDRESS:-127.0.0.1}:5060:5060/${SIP_TRANSPORT:-udp}'
       - '${SIP_BIND_ADDRESS:-127.0.0.1}:10000-10099:10000-10099/udp'
     healthcheck:
       test: [CMD, asterisk, -rx, core show uptime]

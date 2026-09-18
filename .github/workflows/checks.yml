@@ -1,0 +1,31 @@
+name: checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -r requirements.lock
+      - run: ruff check backend voice-gateway tests
+      - run: pytest -q
+      - uses: actions/setup-node@v4
+        with: {node-version: '24', cache: npm, cache-dependency-path: frontend/package-lock.json}
+      - run: npm ci && npm run build
+        working-directory: frontend
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/setup.py
+      - run: docker compose config --quiet
+      - run: docker compose up -d --build --wait --wait-timeout 240
+      - run: curl --fail http://localhost:3000/
+      - run: docker compose exec -T backend python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8000/ready').status)"
+      - run: docker compose logs --tail=100
+        if: failure()
+      - run: docker compose down
+        if: always()

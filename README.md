@@ -79,17 +79,23 @@ Pytest использует изолированный SQLite для бизне�
 
 ## GitHub
 
-Репозиторий и история созданы локально; публикация на GitHub не подтверждена. Архив содержит исходники и `ai-caller.git.bundle` со снимком истории. Восстановить репозиторий из bundle:
+Репозиторий: https://github.com/gingie143-dotcom/AGRO_RingS
 
 ```powershell
-git clone ./ai-caller.git.bundle ./ai-caller-from-git
+git clone https://github.com/gingie143-dotcom/AGRO_RingS.git
+cd AGRO_RingS
 ```
 
-Для создания нового приватного GitHub-репозитория через установленный GitHub CLI:
+### Ключ OpenAI
+
+Создайте ключ в своём проекте на https://platform.openai.com/api-keys. После `./scripts/setup.ps1` откройте локальный `.env` и заполните `OPENAI_API_KEY`. Не помещайте ключ в frontend, GitHub или сообщения. Для симуляции и CI ключ не требуется.
+
+Если контейнеры уже запущены, примените изменение:
 
 ```powershell
-gh auth login
-./scripts/publish.ps1 -Repository YOUR_LOGIN/ai-caller
+docker compose up -d --force-recreate voice-gateway
 ```
+
+Одного ключа недостаточно для звонка: настройте SIP и тестовый номер по [docs/sip.md](docs/sip.md). Ключ не снимает блокировку реальных кампаний.
 
 Не используйте force push. `.env`, данные, записи и зависимости исключены из Git. Правила дальнейшей работы — [AGENTS.md](AGENTS.md).

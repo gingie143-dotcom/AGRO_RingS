@@ -1,0 +1,145 @@
+name: ai-caller
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '3'
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+psycopg://caller:${POSTGRES_PASSWORD:?Run setup first}@postgres:5432/caller
+  REDIS_URL: redis://redis:6379/0
+  SECRET_KEY: ${SECRET_KEY:?Run setup first}
+  SERVICE_TOKEN: ${SERVICE_TOKEN:?Run setup first}
+  ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Run setup first}
+  TRUSTED_ORIGIN: ${TRUSTED_ORIGIN:-http://localhost:3000}
+  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  GATEWAY_URL: http://voice-gateway:8001
+  MAX_CONCURRENT_CALLS: ${MAX_CONCURRENT_CALLS:-1}
+  MAX_CALL_SECONDS: ${MAX_CALL_SECONDS:-300}
+  LIVE_CALLS_ENABLED: ${LIVE_CALLS_ENABLED:-false}
+  LIVE_TEST_NUMBER: ${LIVE_TEST_NUMBER:-}
+  RETENTION_DAYS: ${RETENTION_DAYS:-90}
+  BACKUP_KEY: ${BACKUP_KEY:?Run setup first}
+  BACKUP_DIR: /backups
+services:
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: caller
+      POSTGRES_USER: caller
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run setup first}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U caller -d caller']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    logging: *logging
+  redis:
+    image: redis:7.4-alpine
+    command: [redis-server, --appendonly, 'yes']
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    logging: *logging
+  migrate:
+    build: {context: ., dockerfile: backend/Dockerfile}
+    environment: *backend-env
+    command: [alembic, upgrade, head]
+    depends_on:
+      postgres: {condition: service_healthy}
+    logging: *logging
+  backend:
+    build: {context: ., dockerfile: backend/Dockerfile}
+    environment: *backend-env
+    volumes: [backups:/backups]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    logging: *logging
+  voice-gateway:
+    build: {context: ., dockerfile: voice-gateway/Dockerfile}
+    environment:
+      SERVICE_TOKEN: ${SERVICE_TOKEN:?Run setup first}
+      BACKEND_URL: http://backend:8000
+      REDIS_URL: redis://redis:6379/0
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_ANALYSIS_MODEL: ${OPENAI_ANALYSIS_MODEL:-}
+      OPENAI_REALTIME_MODEL: ${OPENAI_REALTIME_MODEL:-gpt-realtime-2.1}
+      ARI_URL: http://asterisk:8088/ari
+      ARI_USERNAME: caller
+      ARI_PASSWORD: ${ARI_PASSWORD:?Run setup first}
+      LIVE_CALLS_ENABLED: ${LIVE_CALLS_ENABLED:-false}
+      LIVE_TEST_NUMBER: ${LIVE_TEST_NUMBER:-}
+      SIP_ENDPOINT: trunk
+      MEDIA_HOST: voice-gateway
+      MAX_CALL_SECONDS: ${MAX_CALL_SECONDS:-300}
+      MAX_CONCURRENT_CALLS: 1
+    depends_on:
+      backend: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    logging: *logging
+  worker:
+    build: {context: ., dockerfile: backend/Dockerfile}
+    environment: *backend-env
+    command: [python, -m, app.worker]
+    depends_on:
+      voice-gateway: {condition: service_healthy}
+    restart: unless-stopped
+    logging: *logging
+  maintenance:
+    build: {context: ., dockerfile: backend/Dockerfile}
+    environment: *backend-env
+    command: [python, -m, app.backups, worker]
+    volumes: [backups:/backups]
+    depends_on:
+      backend: {condition: service_healthy}
+    restart: unless-stopped
+    logging: *logging
+  frontend:
+    build: {context: ., dockerfile: frontend/Dockerfile}
+    ports: ['127.0.0.1:3000:80']
+    depends_on:
+      backend: {condition: service_healthy}
+    restart: unless-stopped
+    logging: *logging
+  asterisk:
+    profiles: [telephony]
+    build: {context: ./asterisk}
+    environment:
+      ARI_PASSWORD: ${ARI_PASSWORD:?Run setup first}
+      SIP_HOST: ${SIP_HOST:-}
+      SIP_USERNAME: ${SIP_USERNAME:-}
+      SIP_PASSWORD: ${SIP_PASSWORD:-}
+      SIP_EXTERNAL_ADDRESS: ${SIP_EXTERNAL_ADDRESS:-}
+      SIP_LOCAL_NET: ${SIP_LOCAL_NET:-172.16.0.0/12}
+    ports:
+      - '${SIP_BIND_ADDRESS:-127.0.0.1}:5060:5060/udp'
+      - '${SIP_BIND_ADDRESS:-127.0.0.1}:10000-10099:10000-10099/udp'
+    healthcheck:
+      test: [CMD, asterisk, -rx, core show uptime]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    logging: *logging
+volumes:
+  postgres-data:
+  redis-data:
+  backups:
